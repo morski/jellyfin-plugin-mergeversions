@@ -43,10 +43,10 @@ namespace Jellyfin.Plugin.MergeVersions.Api
         /// <returns>A <see cref="NoContentResult"/> indicating success.</returns>
         [HttpPost("MergeMovies")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
-        public ActionResult MergeMoviesRequest()
+        public async Task<ActionResult> MergeMoviesRequest()
         {
             _logger.LogInformation("Starting a manual refresh, looking up for repeated versions");
-            _mergeVersionsManager.MergeMovies(null);
+            await _mergeVersionsManager.MergeMoviesAsync(null);
             _logger.LogInformation("Completed refresh");
             return NoContent();
         }
@@ -58,10 +58,10 @@ namespace Jellyfin.Plugin.MergeVersions.Api
         /// <returns>A <see cref="NoContentResult"/> indicating success.</returns>
         [HttpPost("SplitMovies")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
-        public ActionResult SplitMoviesRequest()
+        public async Task<ActionResult> SplitMoviesRequest()
         {
             _logger.LogInformation("Spliting all movies");
-            _mergeVersionsManager.SplitMovies(null);
+            await _mergeVersionsManager.SplitMoviesAsync(null);
             _logger.LogInformation("Completed");
             return NoContent();
         }

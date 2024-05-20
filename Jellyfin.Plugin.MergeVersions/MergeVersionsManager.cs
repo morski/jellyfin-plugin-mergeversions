@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
@@ -10,20 +9,16 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.MergeVersions
 {
-    public class MergeVersionsManager : IDisposable
+    public class MergeVersionsManager
     {
         private readonly ILibraryManager _libraryManager;
-        private readonly Timer _timer;
-        private readonly ILogger<MergeVersionsManager> _logger; // TODO logging
-        private readonly SessionInfo _session;
+        private readonly ILogger<MergeVersionsManager> _logger;
         private readonly IFileSystem _fileSystem;
 
         public MergeVersionsManager(
@@ -35,10 +30,9 @@ namespace Jellyfin.Plugin.MergeVersions
             _libraryManager = libraryManager;
             _logger = logger;
             _fileSystem = fileSystem;
-            _timer = new Timer(_ => OnTimerElapsed(), null, Timeout.Infinite, Timeout.Infinite);
         }
 
-        public void MergeMovies(IProgress<double> progress)
+        public async Task MergeMoviesAsync(IProgress<double> progress)
         {
             _logger.LogInformation("Scanning for repeated movies");
 
@@ -48,38 +42,41 @@ namespace Jellyfin.Plugin.MergeVersions
                 .ToList();
 
             var current = 0;
-            Parallel.ForEach(
-                duplicateMovies,
-                async m =>
+            foreach(var duplicateMovie in duplicateMovies )
+            {
+                current++;
+                var percent = current / (double)duplicateMovies.Count * 100;
+                progress?.Report((int)percent);
+                _logger.LogInformation(
+                    "Merging {name} ({year})", duplicateMovie.ElementAt(0).Name, duplicateMovie.ElementAt(0).ProductionYear
+                );
+                try
                 {
-                    current++;
-                    var percent = current / (double)duplicateMovies.Count * 100;
-                    progress?.Report((int)percent);
-                    _logger.LogInformation(
-                        $"Merging {m.ElementAt(0).Name} ({m.ElementAt(0).ProductionYear})"
-                    );
-                    await MergeVersions(m.Select(e => e.Id).ToList());
+                    await MergeVersions(duplicateMovie.Select(e => e.Id).ToList());
                 }
-            );
+                catch(Exception ex)
+                {
+                    _logger.LogError("Error when merging movies - {errorMessage}", ex.Message);
+                }
+            }
+            
             progress?.Report(100);
         }
 
-        public void SplitMovies(IProgress<double> progress)
+        public async Task SplitMoviesAsync(IProgress<double> progress)
         {
             var movies = GetMoviesFromLibrary();
             var current = 0;
-            Parallel.ForEach(
-                movies,
-                async m =>
-                {
-                    current++;
-                    var percent = current / (double)movies.Count * 100;
-                    progress?.Report((int)percent);
+            foreach(var movie in movies)
+            {
+                current++;
+                var percent = current / (double)movies.Count * 100;
+                progress?.Report((int)percent);
 
-                    _logger.LogInformation($"Spliting {m.Name} ({m.ProductionYear})");
-                    await DeleteAlternateSources(m.Id);
-                }
-            );
+                _logger.LogInformation("Spliting {name} ({year})", movie.Name, movie.ProductionYear);
+                await DeleteAlternateSources(movie.Id);
+            }
+            
             progress?.Report(100);
         }
 
@@ -106,9 +103,16 @@ namespace Jellyfin.Plugin.MergeVersions
                 var percent = current / (double)duplicateEpisodes.Count * 100;
                 progress?.Report((int)percent);
                 _logger.LogInformation(
-                    $"Merging {e.ElementAt(0).Name} ({e.ElementAt(0).ProductionYear})"
+                    "Merging {name} ({year})", e.ElementAt(0).Name, e.ElementAt(0).ProductionYear
                 );
-                await MergeVersions(e.Select(e => e.Id).ToList());
+                try
+                {
+                    await MergeVersions(e.Select(e => e.Id).ToList());
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError("Error when merging shows - {errorMessage}", ex.Message);
+                }
             }
             progress?.Report(100);
         }
@@ -124,7 +128,7 @@ namespace Jellyfin.Plugin.MergeVersions
                 var percent = current / (double)episodes.Count * 100;
                 progress?.Report((int)percent);
 
-                _logger.LogInformation($"Spliting {e.IndexNumber} ({e.SeriesName})");
+                _logger.LogInformation("Spliting {indexNumber} ({name})", e.IndexNumber, e.SeriesName);
                 await DeleteAlternateSources(e.Id);
             }
             progress?.Report(100);
@@ -302,23 +306,6 @@ namespace Jellyfin.Plugin.MergeVersions
                 return false;
             }
             return true;
-        }
-
-        private void OnTimerElapsed() { }
-
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (disposing)
-            {
-                _timer?.Dispose();
-                _session?.DisposeAsync();
-            }
         }
     }
 }
